@@ -51,6 +51,7 @@ extern osMessageQueueId_t  queue_timeS_id;
 extern osMessageQueueId_t  queue_chatS_id;
 extern osMessageQueueId_t  queue_keyboard_id;
 extern osMessageQueueId_t  queue_usartR_id;
+extern osMessageQueueId_t local_queue_id;
 extern osEventFlagsId_t  	eventFlag_id;
 //--------------------------------------------------------------------------------
 // functions used in more than one file
@@ -75,7 +76,7 @@ struct TOKENINTERFACE
 	uint32_t	debugAddress;					///< current debug address
 	bool_t		debugMsgToSend;				///< did debug have to send a message
 	uint32_t	destinationAddress;		///< current destination address
-	uint8_t		station_list[15];			///< 0 to 15 
+	uint8_t		station_list[15];			///< 0 to 14 
 };
 extern struct TOKENINTERFACE gTokenInterface;
 

@@ -41,6 +41,10 @@ osMessageQueueId_t  queue_timeS_id;
 osMessageQueueId_t  queue_lcd_id; 
 osMessageQueueId_t  queue_keyboard_id; 
 osMessageQueueId_t  queue_usartR_id; //
+osMessageQueueId_t local_queue_id;
+const osMessageQueueAttr_t local_queue_attr = {
+	.name = "LOCAL_BUFF"  	
+};
 const osMessageQueueAttr_t queue_macR_attr = {
 	.name = "MAC_RECEIVER"  	
 };
@@ -383,6 +387,7 @@ int main(void)
 	queue_lcd_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
 	queue_keyboard_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
 	queue_usartR_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
+	local_queue_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
 
 // queues below have to be used when Keil fix the os display bug
 /*
