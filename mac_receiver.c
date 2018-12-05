@@ -34,49 +34,55 @@ void MacReceiver(void *argument)
 			NULL,
 			osWaitForever); 	
     CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
-		qPtr = queueMsg.anyPtr;
 		
-		//---------------------------------------------------------------------------
-		// DETECT TYPE OF FRAME
-		//---------------------------------------------------------------------------
-			
-		// TOKEN RECEIVED
-		if(qPtr[1] == TOKEN_TAG)   
+		if(retCode == osOK)
 		{
-			queueMsg.type = TOKEN;
-			//--------------------------------------------------------------------------
-			// QUEUE SEND	(send received frame to mac layer sender)
-			//--------------------------------------------------------------------------
-			retCode = osMessageQueuePut(
-				queue_macS_id,
-				&queueMsg,
-				osPriorityNormal,
-				osWaitForever);
-			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
-		
-		}	
-		// DATA FRAME RECEIVED
-		else												
-		{
-			// it's a data so get the msg
-			memcpy(msg,&qPtr[1],size-2);
 			
-			// We are the destination it's a DATA_IND for one of our SAPI
-			if(((msg[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
-				((msg[1]>>3) == BROADCAST_ADDRESS))	// is a broadcast frame (TIME SAPI)
-			{
-				// to be done update type please
+			qPtr = queueMsg.anyPtr;
+			
+			//---------------------------------------------------------------------------
+			// DETECT TYPE OF FRAME
+			//---------------------------------------------------------------------------
 				
-			}
-			
-			// We were the source so this is a DATABACK
-			else if(((msg[0]>>3) == gTokenInterface.myAddress))	// is source my address
+			// TOKEN RECEIVED
+			if(qPtr[0] == TOKEN_TAG)   
 			{
-				// to be done
-				queueMsg.type = DATABACK;
+				queueMsg.type = TOKEN;
+				//--------------------------------------------------------------------------
+				// QUEUE SEND	(send received frame to mac layer sender)
+				//--------------------------------------------------------------------------
+				retCode = osMessageQueuePut(
+					queue_macS_id,
+					&queueMsg,
+					osPriorityNormal,
+					osWaitForever);
+				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
+			
+			}	
+			// DATA FRAME RECEIVED
+			else												
+			{
+				// les index de qptr sont pas surs.... qptr ne contient plus etx et stx
+				
+				// it's a data so get the msg
+				memcpy(msg,&qPtr[1],size-2);
+				
+				// We are the destination it's a DATA_IND for one of our SAPI
+				if(((msg[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
+					((msg[1]>>3) == BROADCAST_ADDRESS))	// is a broadcast frame (TIME SAPI)
+				{
+					// to be done update type please
+					
+				}
+				
+				// We were the source so this is a DATABACK
+				else if(((msg[0]>>3) == gTokenInterface.myAddress))	// is source my address
+				{
+					// to be done
+					queueMsg.type = DATABACK;
+				}
 			}
 		}
-		
 		
 	}
 }
