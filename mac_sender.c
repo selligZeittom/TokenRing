@@ -117,7 +117,7 @@ void MacSender(void *argument)
 		else if(queueMsg.type == NEW_TOKEN)
 		{
 			//set the time sapi as active (0x03) chat sapi will be at 0x01
-			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x04; 
+			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
 			
 			//malloc and then full this no need stx etx done by phy layer
 			//----------------------------------------------------------------------------
@@ -155,8 +155,8 @@ void MacSender(void *argument)
 		//STOP REQUEST (disconnect chat)
 		else if(queueMsg.type == STOP)
 		{
-			//set the chat sapi as active (0x03) and chat sapi as  not active too (0x01)
-			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x04;
+			//set the time sapi as active (0x03) and chat sapi as  not active (0x01)
+			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x08;
 		}
 		
 		//GOT DATA FROM OUR SAPIs

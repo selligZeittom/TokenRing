@@ -18,8 +18,8 @@
 void MacReceiver(void *argument)
 {
 	struct queueMsg_t queueMsg;		// queue message
-	uint8_t * msg;		// pointer on the message (frame without STX/ETX)
-	uint8_t * qPtr;  // pointer on the frame
+	uint8_t * dataPtr;		// pointer on the data 
+	uint8_t * qPtr;  // pointer on the frame (frame without STX/ETX)
 	size_t	size;
 	osStatus_t retCode;
 	
@@ -59,31 +59,147 @@ void MacReceiver(void *argument)
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
 			
 			}	
+			
 			// DATA FRAME RECEIVED
 			else												
-			{
-				// les index de qptr sont pas surs.... qptr ne contient plus etx et stx
+			{				
+				//get the size
+				size = qPtr[2]+4;
 				
 				// it's a data so get the msg
-				memcpy(msg,&qPtr[1],size-2);
+				dataPtr = &qPtr[3];
 				
 				// We are the destination it's a DATA_IND for one of our SAPI
-				if(((msg[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
-					((msg[1]>>3) == BROADCAST_ADDRESS))	// is a broadcast frame (TIME SAPI)
+				if(((qPtr[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
+					((qPtr[1]>>3) == BROADCAST_ADDRESS))	// is a broadcast frame (TIME SAPI)
 				{
-					// to be done update type please
+					/******************************************************
+					*	1) get and calculate checksum
+					* 	-	ok : Set ACK
+					*					 Check own SAPI state
+					*							- ok :  Set Read
+					*										  Create String Frame
+					*										  Put DATA_IND into SAPI RX Queue
+					*							- nok : Reset Read
+					*		- nok : Set ACK
+					* 2) Send back TO_PHY msg
+					*******************************************************/
+					
+					//checksum of the received frame
+					uint8_t checksumRx = qPtr[size-1];
+					checksumRx = checksumRx>> 2;
+					
+					//calculate our checksum
+					uint8_t checksumCalc = 0;
+					for(uint8_t i = 0; i< qPtr[2] ; i++)
+					{
+							checksumCalc += dataPtr[i];
+					}
+					checksumCalc = checksumCalc >> 2;
+					
+					// check if checksums match
+					if(checksumRx == checksumCalc)
+					{
+						// write ACK
+						qPtr[size-1] = qPtr[size-1] | 0x01; //force the bit0 to 1
+						
+						// check our SAPI state
+						uint8_t sapiToReach = qPtr[1] & 0x07;
+						
+						if((gTokenInterface.station_list[MYADDRESS] >> sapiToReach) == 1)
+						{
+							// if SAPI available
+							// write Read
+							qPtr[size-1] = qPtr[size-1] | 0x02; //force the bit1 to 1
+							
+							// prepare the message to forward to our SAPI (chat or time)
+							struct queueMsg_t queueMsgForSAPI;
+							queueMsgForSAPI.type = DATA_IND;
+							queueMsgForSAPI.anyPtr = dataPtr;
+							queueMsgForSAPI.sapi = sapiToReach;
+							queueMsgForSAPI.addr = MYADDRESS;
+							
+							// push it man
+							//--------------------------------------------------------------------------
+							// QUEUE SEND	(send string to right sapi)
+							//--------------------------------------------------------------------------
+							
+							if(sapiToReach == CHAT_SAPI)
+							{
+								retCode = osMessageQueuePut(
+									queue_chatR_id,
+									&queueMsg,
+									osPriorityNormal,
+									osWaitForever);
+								CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
+							}
+							else if(sapiToReach == TIME_SAPI)
+							{
+									retCode = osMessageQueuePut(
+									queue_timeR_id,
+									&queueMsg,
+									osPriorityNormal,
+									osWaitForever);
+								CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
+							}
+						}							
+						else
+						{
+							// SAPI not available
+							// write Read
+							/****************************************
+							
+							
+							
+							
+							
+							
+							
+							TOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+							
+							
+							
+							DOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+							
+							
+							
+							
+							
+							
+							*//////////////////////////////////////////////////////
+							qPtr[size-1] = qPtr[size-1] | 0x02; //force the bit1 to 1
+							
+						}
+					}
+					// ERROR Checksum
+					else
+					{
+							// write NACK
+					}
 					
 				}
 				
 				// We were the source so this is a DATABACK
-				else if(((msg[0]>>3) == gTokenInterface.myAddress))	// is source my address
+				else if(((qPtr[0]>>3) == gTokenInterface.myAddress))	// is source my address
 				{
-					// to be done
+					//update type
 					queueMsg.type = DATABACK;
+					//add src and src sapi
+					queueMsg.addr = gTokenInterface.myAddress;
+					queueMsg.sapi = CHAT_SAPI;
+					
+					//--------------------------------------------------------------------------
+					// QUEUE SEND	(send received frame to mac layer sender)
+					//--------------------------------------------------------------------------
+					retCode = osMessageQueuePut(
+						queue_macS_id,
+						&queueMsg,
+						osPriorityNormal,
+						osWaitForever);
+					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);
 				}
 			}
 		}
-		
 	}
 }
 
