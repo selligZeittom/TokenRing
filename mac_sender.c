@@ -53,11 +53,11 @@ void MacSender(void *argument)
 				//for our station, update the token with our informations
 				if(i == gTokenInterface.myAddress)
 				{
-					dataToken[i] = gTokenInterface.station_list[i-1];
+					dataToken[i+1] = gTokenInterface.station_list[i];
 				} 
 				else
 				{
-					gTokenInterface.station_list[i] = dataToken[i];
+					gTokenInterface.station_list[i] = dataToken[i+1];
 				}
 			}
 			
@@ -131,20 +131,6 @@ void MacSender(void *argument)
 			for(uint8_t i = 0;i<15;i++){
 				msg[i+1] = gTokenInterface.station_list[i];
 			}
-			//memcpy(msg,&qPtr[1],size-2);
-
-			
-			
-			//create the token data frame
-			/*
-			uint8_t dataToken[TOKENSIZE];
-			dataToken[0] = STX;
-			dataToken[1] = TOKEN_TAG;
-			dataToken[TOKENSIZE-1] = ETX;
-			for(uint8_t i = 0;i<15;i++){
-				dataToken[i+2] = gTokenInterface.station_list[i];
-			}
-			*/
 			
 			//create the token frame
 			struct queueMsg_t queueToken;
