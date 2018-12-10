@@ -19,8 +19,7 @@
 void MacSender(void *argument)
 {
 	struct queueMsg_t queueMsg;		// queue message
-	uint8_t * msg;		// pointer on the message (frame without STX/ETX)
-	uint8_t * qPtr;  // pointer on the frame
+	uint8_t * tokenPtr;		// pointer on the message (frame without STX/ETX)
 	size_t	size;
 	osStatus_t retCode;
 	
@@ -36,7 +35,6 @@ void MacSender(void *argument)
 			NULL,
 			osWaitForever); 	
     CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
-		qPtr = queueMsg.anyPtr;
 		
 		//DATABACK RECEIVED
 		if(queueMsg.type == DATABACK)
@@ -46,18 +44,18 @@ void MacSender(void *argument)
 		//TOKEN RECEIVED
 		else if(queueMsg.type == TOKEN)
 		{
-			uint8_t* dataToken = queueMsg.anyPtr;
-			
+			//uint8_t* dataToken = queueMsg.anyPtr;
+			tokenPtr = queueMsg.anyPtr;
 			//first update our list with the informations from the token
 			for(uint8_t i = 0;i<15;i++){
 				//for our station, update the token with our informations
 				if(i == gTokenInterface.myAddress)
 				{
-					dataToken[i+1] = gTokenInterface.station_list[i];
+					tokenPtr[i+1] = gTokenInterface.station_list[i];
 				} 
 				else
 				{
-					gTokenInterface.station_list[i] = dataToken[i+1];
+					gTokenInterface.station_list[i] = tokenPtr[i+1];
 				}
 			}
 			
@@ -79,7 +77,6 @@ void MacSender(void *argument)
 			//--------------------------------------------------------------------------
 			// QUEUE GET	(get sth inside the local queue)
 			//--------------------------------------------------------------------------
-			// proooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooblème ici ca coince infini
 			struct queueMsg_t queueMsgSend;
 			retCode = osMessageQueueGet( 	
 			local_queue_id,
@@ -126,16 +123,16 @@ void MacSender(void *argument)
 			//----------------------------------------------------------------------------
 			// MEMORY ALLOCATION				
 			//----------------------------------------------------------------------------
-			msg = osMemoryPoolAlloc(memPool,osWaitForever);				
-			msg[0] = TOKEN_TAG;
+			tokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);				
+			tokenPtr[0] = TOKEN_TAG;
 			for(uint8_t i = 0;i<15;i++){
-				msg[i+1] = gTokenInterface.station_list[i];
+				tokenPtr[i+1] = gTokenInterface.station_list[i];
 			}
 			
 			//create the token frame
 			struct queueMsg_t queueToken;
 			queueToken.type = TO_PHY;
-			queueToken.anyPtr = msg;
+			queueToken.anyPtr = tokenPtr;
 			
 			//--------------------------------------------------------------------------
 			// QUEUE SEND	(forward the new token)
