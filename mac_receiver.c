@@ -11,6 +11,9 @@
 #include <string.h>
 #include "main.h"
 
+#define R_flag 1<<1
+#define A_flag 1<<0
+
 
 //////////////////////////////////////////////////////////////////////////////////
 // THREAD MAC RECEIVER
@@ -86,8 +89,8 @@ void MacReceiver(void *argument)
 					*******************************************************/
 					
 					//checksum of the received frame
-					uint8_t checksumRx = qPtr[size-1];
-					checksumRx = checksumRx>> 2;
+					uint8_t status = qPtr[size-1];
+					uint8_t checksumRx = status>> 2;
 					
 					//calculate our checksum
 					uint8_t checksumCalc = 0;
@@ -101,7 +104,8 @@ void MacReceiver(void *argument)
 					if(checksumRx == checksumCalc)
 					{
 						// write ACK
-						qPtr[size-1] = qPtr[size-1] | 0x01; //force the bit0 to 1
+						//qPtr[size-1] = qPtr[size-1] | 0x01; //force the bit0 to 1
+						qPtr[size-1] = qPtr[size-1] | A_flag;
 						
 						// check our SAPI state
 						uint8_t sapiToReach = qPtr[1] & 0x07;
@@ -109,10 +113,11 @@ void MacReceiver(void *argument)
 						if((gTokenInterface.station_list[MYADDRESS] >> sapiToReach) == 1)
 						{
 							// if SAPI available
-							// write Read
-							qPtr[size-1] = qPtr[size-1] | 0x02; //force the bit1 to 1
+							// write Read @ 1
+							qPtr[size-1] = qPtr[size-1] | R_flag; //force the bit1 to 1
 							
 							// prepare the message to forward to our SAPI (chat or time)
+							// beware the DEBUG STATION send a msg without \0
 							struct queueMsg_t queueMsgForSAPI;
 							queueMsgForSAPI.type = DATA_IND;
 							queueMsgForSAPI.anyPtr = dataPtr;
@@ -128,7 +133,7 @@ void MacReceiver(void *argument)
 							{
 								retCode = osMessageQueuePut(
 									queue_chatR_id,
-									&queueMsg,
+									&queueMsgForSAPI,
 									osPriorityNormal,
 									osWaitForever);
 								CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
@@ -137,7 +142,7 @@ void MacReceiver(void *argument)
 							{
 									retCode = osMessageQueuePut(
 									queue_timeR_id,
-									&queueMsg,
+									&queueMsgForSAPI,
 									osPriorityNormal,
 									osWaitForever);
 								CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
@@ -146,37 +151,28 @@ void MacReceiver(void *argument)
 						else
 						{
 							// SAPI not available
-							// write Read
-							/****************************************
-							
-							
-							
-							
-							
-							
-							
-							TOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-							
-							
-							
-							DOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-							
-							
-							
-							
-							
-							
-							*//////////////////////////////////////////////////////
-							qPtr[size-1] = qPtr[size-1] | 0x02; //force the bit1 to 1
+							// write Read @ 0
+							qPtr[size-1] = qPtr[size-1] & (~R_flag); //force the bit1 to 0
 							
 						}
 					}
 					// ERROR Checksum
 					else
 					{
-							// write NACK
+						// write NACK
+						qPtr[size-1] = qPtr[size-1] & (~A_flag); //force the bit0 to 0
 					}
 					
+					//--------------------------------------------------------------------------
+					// QUEUE SEND	(send back to phy 
+					//--------------------------------------------------------------------------
+					queueMsg.type = TO_PHY;
+					retCode = osMessageQueuePut(
+						queue_phyS_id,
+						&queueMsg,
+						osPriorityNormal,
+						osWaitForever);
+					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
 				}
 				
 				// We were the source so this is a DATABACK
