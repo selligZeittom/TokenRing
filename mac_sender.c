@@ -293,6 +293,15 @@ void MacSender(void *argument)
 			// MEMORY ALLOCATION				
 			//----------------------------------------------------------------------------
 
+						//complete length
+			uint8_t* stringPtr = queueMsg.anyPtr;
+			uint8_t length = 0;
+			while(*stringPtr != 0)
+			{
+				length++;
+				stringPtr++;
+			}
+			
 			uint8_t* framePtr = osMemoryPoolAlloc(memPool,osWaitForever);			
 			uint8_t addrDest = queueMsg.addr;
 			uint8_t srcSapi = queueMsg.sapi;
@@ -309,14 +318,7 @@ void MacSender(void *argument)
 			controldst = controldst + srcSapi;
 			framePtr[1] = controldst;
 			
-			//complete length
-			uint8_t* stringPtr = queueMsg.anyPtr;
-			uint8_t length = 0;
-			while(*stringPtr != 0)
-			{
-				length++;
-				stringPtr++;
-			}
+
 			framePtr[2] = length;
 			
 			//copy data into frame 

@@ -18,8 +18,8 @@
 //--------------------------------------------------------------------------------
 // Constants to change the system behaviour
 //--------------------------------------------------------------------------------
-#define DEBUG_MODE				1					// mode is physical line (0) or debug (1)
-#define MYADDRESS   			3					// your address choice (table number)
+#define DEBUG_MODE				0					// mode is physical line (0) or debug (1)
+#define MYADDRESS   			6					// your address choice (table number) //3
 #define MAX_BLOCK_SIZE 		100				// size max for a frame
 
 //--------------------------------------------------------------------------------
