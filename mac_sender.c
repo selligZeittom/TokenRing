@@ -40,6 +40,8 @@ void MacSender(void *argument)
 		//DATABACK RECEIVED
 		if(queueMsg.type == DATABACK)
 		{
+			uint8_t releaseToken = 0;
+			
 			uint8_t* dataBackPtr = queueMsg.anyPtr;
 			
 			uint8_t length = dataBackPtr[2];
@@ -56,7 +58,8 @@ void MacSender(void *argument)
 				// MEMORY RELEASE	of the original data pointer
 				//------------------------------------------------------------------------
 				retCode = osMemoryPoolFree(memPool,originalMsgPtr);
-				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
+				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
+				releaseToken = 1;
 			}
 			
 			// THEN READ @ 0 or ACK @ 0
@@ -78,58 +81,96 @@ void MacSender(void *argument)
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
 				
-				// READ is 0 and ACK is 1
-				if( ((statusDataBackFlagsAckRead & 0x02) == 0)  && ((statusDataBackFlagsAckRead & 0x01) == 1))
-				{
-					//------------------------------------------------------------------------
-					// MEMORY RELEASE	of the original data pointer
-					//------------------------------------------------------------------------
-					retCode = osMemoryPoolFree(memPool,originalMsgPtr);
-					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
-				}
+						// READ is 0 destination sapi not connected
+						if( ((statusDataBackFlagsAckRead & 0x02) == 0) )// && ((statusDataBackFlagsAckRead & 0x01) == 1))
+						{
+							//------------------------------------------------------------------------
+							// MEMORY RELEASE	of the original data pointer
+							//------------------------------------------------------------------------
+							retCode = osMemoryPoolFree(memPool,originalMsgPtr);
+							CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
+							releaseToken = 1;
+						}
 
-				// ACK is 0
-				else if(((statusDataBackFlagsAckRead & 0x01) == 0))
-				{
-					struct queueMsg_t sendAgainMsg;
-					sendAgainMsg.type = TO_PHY;
-					sendAgainMsg.addr = MYADDRESS;
-					sendAgainMsg.anyPtr = originalMsgPtr;
-					//--------------------------------------------------------------------------
-					// QUEUE SEND	(send back our msg)
-					//--------------------------------------------------------------------------
-					retCode = osMessageQueuePut(
-						queue_phyS_id,
-						&sendAgainMsg,
-						osPriorityNormal,
-						osWaitForever);
-					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);						
-				}
+						// ACK is 0 and READ is 1 => sapi destination is connected but error somewhere send again
+						/*
+						
+						
+						
+						
+						BEWARE IF 2 ERRORS HAPPENED on the same msg => original no more there...................
+						
+						
+						
+						
+						
+						*/
+						else if(((statusDataBackFlagsAckRead & 0x01) == 0) && ((statusDataBackFlagsAckRead & 0x02) == 1)) 
+						{
+							struct queueMsg_t sendAgainMsg;
+							sendAgainMsg.type = TO_PHY;
+							sendAgainMsg.addr = MYADDRESS;
+							sendAgainMsg.anyPtr = originalMsgPtr;
+							//--------------------------------------------------------------------------
+							// QUEUE SEND	(send back our msg)
+							//--------------------------------------------------------------------------
+							retCode = osMessageQueuePut(
+								queue_phyS_id,
+								&sendAgainMsg,
+								osPriorityNormal,
+								osWaitForever);
+							CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);			
+							releaseToken = 0;
+						}
 			}
 			
 			//------------------------------------------------------------------------
 			// MEMORY RELEASE	of the dataBack pointer
 			//------------------------------------------------------------------------
+			dataBackPtr[0] = 0xAA;
+			dataBackPtr[1] = 0xBB;
 			retCode = osMemoryPoolFree(memPool,dataBackPtr);
-			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
+			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
+
+			if(releaseToken == 1)
+			{
+				struct queueMsg_t queueReleaseToken;
+				queueReleaseToken.type = TO_PHY;
+				uint8_t* tokenReleasePtr = tokenPtr;
+				tokenReleasePtr[0] = TOKEN_TAG;
+				for(uint8_t i = 0;i<15;i++){
+					tokenReleasePtr[i+1] = gTokenInterface.station_list[i];
+				}
+				queueReleaseToken.anyPtr = tokenReleasePtr;
+					
+				retCode = osMessageQueuePut(
+					queue_phyS_id,
+					&queueReleaseToken,
+					osPriorityNormal,
+					osWaitForever);
+				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
+			}
 	
 		}
 		
 		//TOKEN RECEIVED
 		else if(queueMsg.type == TOKEN)
 		{
-			//uint8_t* dataToken = queueMsg.anyPtr;
-			tokenPtr = queueMsg.anyPtr;
+			
+			// tokenPtr = queueMsg.anyPtr;
+			
+			// this token will be released it's not our alloc
+			uint8_t* receivedTokenPtr = queueMsg.anyPtr;
 			//first update our list with the informations from the token
 			for(uint8_t i = 0;i<15;i++){
 				//for our station, update the token with our informations
 				if(i == gTokenInterface.myAddress)
 				{
-					tokenPtr[i+1] = gTokenInterface.station_list[i];
+					receivedTokenPtr[i+1] = gTokenInterface.station_list[i];
 				} 
 				else
 				{
-					gTokenInterface.station_list[i] = tokenPtr[i+1];
+					gTokenInterface.station_list[i] = receivedTokenPtr[i+1];
 				}
 			}
 			
@@ -157,12 +198,21 @@ void MacSender(void *argument)
 			&queueMsgSend,
 			NULL,
 			1); 	
-			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
+		//	CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
 			
 			//if there is sth inside the local queue -> send it !
 			if(retCode == osOK)
 			{
 				queueMsgSend.type = TO_PHY;
+				
+				//--------------------------------------------------------------------------
+				// SAVE ORIGINAL MESSAGE POINTER IN CASE OF RESEND NEEDED
+				//--------------------------------------------------------------------------
+				//	originalMsgPtr = queueMsgSend.anyPtr; // aka framePtr précédemment alloué
+					originalMsgPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+					uint8_t* originalFramePtr = queueMsgSend.anyPtr;
+					memcpy(originalMsgPtr,queueMsgSend.anyPtr,(uint8_t) (originalFramePtr[2]) + 4);	
+				
 				//--------------------------------------------------------------------------
 				// QUEUE SEND	(put into phy queue)
 				//--------------------------------------------------------------------------
@@ -172,41 +222,13 @@ void MacSender(void *argument)
 					osPriorityNormal,
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
-				
-				//--------------------------------------------------------------------------
-				// SAVE ORIGINAL MESSAGE POINTER IN CASE OF RESEND NEEDED
-				//--------------------------------------------------------------------------
-					originalMsgPtr = queueMsgSend.anyPtr;
-				
-				
-				
-				
-				/*
-				
-				
-				
-				
-				
-				
-				
-				
-				A LOCAL COPY IN DEBUG MODE IS DONE => when delete databack it delete original and cannot send back...
-				
-				
-				
-				
-				
-				*/
-				
-				
-				
-				
 			}
 			
 			//if not -> release TOKEN
 			else
 			{
 				queueMsg.type = TO_PHY;
+			//	tokenPtr[0] = TOKEN_TAG;
 				retCode = osMessageQueuePut(
 					queue_phyS_id,
 					&queueMsg,
@@ -266,7 +288,7 @@ void MacSender(void *argument)
 		else if(queueMsg.type == DATA_IND)
 		{
 			struct queueMsg_t msgSend;
-			
+			uint8_t* stringFromChatPtr = queueMsg.anyPtr;
 			//----------------------------------------------------------------------------
 			// MEMORY ALLOCATION				
 			//----------------------------------------------------------------------------
@@ -297,16 +319,22 @@ void MacSender(void *argument)
 			}
 			framePtr[2] = length;
 			
-			//copy data into frame and calculate checksum
+			//copy data into frame 
 			uint8_t checksum = 0;
 			stringPtr = queueMsg.anyPtr; //reset stringPtr
 			for(uint8_t i = 0; i < length; i++)
 			{
 				framePtr[i+3] = *stringPtr;
-				checksum+= framePtr[i+3];
+			//	checksum+= framePtr[i+3];
 				stringPtr++;
 			}
-			checksum = checksum & 0xfc; //reset ACK and READ
+			
+			// and calculate checksum
+			for(uint8_t i = 0; i < (length + 3); i++)
+			{		
+			  	checksum+= framePtr[i];			
+			}
+			checksum = checksum << 2 ;// & 0xfc; //reset ACK and READ
 			framePtr[3+length] = checksum;
 			
 			msgSend.anyPtr = framePtr;
@@ -323,7 +351,8 @@ void MacSender(void *argument)
 			//------------------------------------------------------------------------
 			// MEMORY RELEASE	of the string pointer
 			//------------------------------------------------------------------------
-			retCode = osMemoryPoolFree(memPool,queueMsg.anyPtr);
+
+			retCode = osMemoryPoolFree(memPool,stringFromChatPtr);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);
 		
 		}

@@ -42,7 +42,12 @@ void MacReceiver(void *argument)
 		{
 			
 			qPtr = queueMsg.anyPtr;
-			
+			if(qPtr[0] == 0x00 )
+			{
+				uint8_t super = 32;
+				super++ ;
+				// stop
+			}
 			//---------------------------------------------------------------------------
 			// DETECT TYPE OF FRAME
 			//---------------------------------------------------------------------------
@@ -90,15 +95,16 @@ void MacReceiver(void *argument)
 					
 					//checksum of the received frame
 					uint8_t status = qPtr[size-1];
-					uint8_t checksumRx = status>> 2;
+					uint8_t checksumRx = status & 0xFC;// 2;
 					
 					//calculate our checksum
 					uint8_t checksumCalc = 0;
-					for(uint8_t i = 0; i< qPtr[2] ; i++)
+					for(uint8_t i = 0; i< (qPtr[2] + 3); i++)
 					{
-							checksumCalc += dataPtr[i];
+							checksumCalc += qPtr[i];
+							//checksumCalc += dataPtr[i];
 					}
-					checksumCalc = checksumCalc >> 2;
+					checksumCalc = checksumCalc << 2;
 					
 					// check if checksums match
 					if(checksumRx == checksumCalc)
@@ -110,7 +116,8 @@ void MacReceiver(void *argument)
 						// check our SAPI state
 						uint8_t sapiToReach = qPtr[1] & 0x07;
 						
-						if((gTokenInterface.station_list[MYADDRESS] >> sapiToReach) == 1)
+						// check if our sapi is connected
+						if(((gTokenInterface.station_list[MYADDRESS] >> sapiToReach) &0x01) == 1)
 						{
 							// if SAPI available
 							// write Read @ 1
@@ -120,6 +127,7 @@ void MacReceiver(void *argument)
 							// beware the DEBUG STATION send a msg without \0
 							struct queueMsg_t queueMsgForSAPI;
 							queueMsgForSAPI.type = DATA_IND;
+							dataPtr[size-4] = 0x00;							// here put the terminaison c-style character known as a 0x00 aka NULL
 							queueMsgForSAPI.anyPtr = dataPtr;
 							queueMsgForSAPI.sapi = sapiToReach;
 							queueMsgForSAPI.addr = MYADDRESS;
