@@ -40,6 +40,9 @@ void MacSender(void *argument)
 		//----------------------------------------------------------------------------
 		if(queueMsg.type == DATABACK)
 		{
+			static uint8_t updateLCDOnError = 0;
+			updateLCDOnError++;
+			
 			uint8_t needToReleaseToken = 0; 
 			uint8_t* databackFramePtr = queueMsg.anyPtr; //ptr on the frame		
 			uint8_t length = databackFramePtr[2]; //get the length
@@ -49,6 +52,7 @@ void MacSender(void *argument)
 			// ACK and READ are SET or we send us a msg (we are destination)
 			if(statusDataBackFlagsAckRead == 0x03)
 			{
+				updateLCDOnError = 0;
 				/********** MEMORY RELEASE	of the original data pointer **********/	
 				retCode = osMemoryPoolFree(memPool,originalMsgPtr);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
@@ -58,6 +62,9 @@ void MacSender(void *argument)
 			// ACK or READ are SET, but not both
 			else
 			{
+				// update only one time the lcd, avoid harrasment
+				if(updateLCDOnError == 1)
+				{
 				// Send a MAC_ERROR to the lcd queue
 				struct queueMsg_t macErrMsg;
 				macErrMsg.type = MAC_ERROR;
@@ -80,11 +87,15 @@ void MacSender(void *argument)
 					&macErrMsg,
 					osPriorityNormal,
 					osWaitForever);
-				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
+				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);						
+				}
+				
+				
 				
 				// READ is 0  : destination sapi is not connected
 				if( ((statusDataBackFlagsAckRead & 0x02) == 0) )
 				{
+					updateLCDOnError = 0;
 					/********** MEMORY RELEASE	of the original data pointer **********/
 					retCode = osMemoryPoolFree(memPool,originalMsgPtr);
 					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
@@ -120,6 +131,7 @@ void MacSender(void *argument)
 			//release the token if it was correctly sent and handled
 			if(needToReleaseToken == 1)
 			{
+				updateLCDOnError = 0;
 				struct queueMsg_t releaseTokenMsg;
 				releaseTokenMsg.type = TO_PHY;
 				
