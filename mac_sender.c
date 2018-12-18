@@ -21,7 +21,7 @@ void MacSender(void *argument)
 	struct queueMsg_t queueMsg;		// queue message
 	osStatus_t retCode; 			// get the status after an operation on the OS
 	uint8_t * tokenPtr = NULL;				// pointer on the token, to ground
-	
+	uint8_t* receivedTokenPtr;
 	
 	uint8_t* originalMsgPtr;
 	
@@ -120,6 +120,7 @@ void MacSender(void *argument)
 				struct queueMsg_t releaseTokenMsg;
 				releaseTokenMsg.type = TO_PHY;
 				
+				
 				//tbd
 				tokenPtr[0] = TOKEN_TAG;
 				for(uint8_t i = 0; i < 15;i++)
@@ -128,10 +129,10 @@ void MacSender(void *argument)
 				}
 				
 				/********** MEMORY ALLOC : save some space for the sent token **********/
-				uint8_t* releaseTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);
-				memcpy(releaseTokenPtr, tokenPtr, TOKENSIZE-2);
+				//uint8_t* releaseTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+				//memcpy(releaseTokenPtr, tokenPtr, TOKENSIZE-2);
 				
-				releaseTokenMsg.anyPtr = releaseTokenPtr;
+				releaseTokenMsg.anyPtr = receivedTokenPtr;
 				
 				/********** QUEUE PUT : give back the token to the next station **********/	
 				retCode = osMessageQueuePut(
@@ -153,7 +154,8 @@ void MacSender(void *argument)
 		else if(queueMsg.type == TOKEN)
 		{	
 			// this token will be released it's not our alloc
-			uint8_t* receivedTokenPtr = queueMsg.anyPtr;
+			receivedTokenPtr = queueMsg.anyPtr;
+			
 			
 			if(tokenPtr == NULL) //test if tokenPtr already exists or not
 			{
@@ -164,6 +166,7 @@ void MacSender(void *argument)
 				//set our current state
 				gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
 			}
+		
 			
 			//first update our list with the informations from the token
 			for(uint8_t i = 0;i < 15;i++)
