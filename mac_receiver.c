@@ -68,7 +68,7 @@ void MacReceiver(void *argument)
 				
 				// We are the destination it's a DATA_IND for one of our SAPI
 				if(((qPtr[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
-					((qPtr[1]>>3) == BROADCAST_ADDRESS))	// is a broadcast frame (TIME SAPI)
+					(((qPtr[1]>>3) == BROADCAST_ADDRESS) && ((qPtr[0]>>3)!=gTokenInterface.myAddress)))	// is a broadcast frame (TIME SAPI)
 				{
 					/******************************************************
 					*	1) get and calculate checksum
@@ -166,7 +166,8 @@ void MacReceiver(void *argument)
 				}
 				
 				// We were the source so this is a DATABACK
-				else if(((qPtr[0]>>3) == gTokenInterface.myAddress))	// is source my address
+				else if(((qPtr[0]>>3) == gTokenInterface.myAddress) || 
+					(((qPtr[1]>>3) == BROADCAST_ADDRESS) && ((qPtr[0]>>3)==gTokenInterface.myAddress)))	// is source my address
 				{
 					//update type
 					queueMsg.type = DATABACK;
@@ -181,6 +182,30 @@ void MacReceiver(void *argument)
 						osPriorityNormal,
 						osWaitForever);
 					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);
+							
+					/********** QUEUE PUT : send string to the right sapi **********/
+					if((qPtr[1]>>3) == BROADCAST_ADDRESS)
+					{
+						// prepare the message to forward to our SAPI (chat or time)
+						struct queueMsg_t toSapiMsg;
+						toSapiMsg.type = DATA_IND;
+						// check our SAPI state
+						uint8_t sapiToReach = qPtr[1] & 0x07;
+						/********** MEMORY ALLOC : save some space for the data **********/
+						uint8_t* sapiDataPtr = osMemoryPoolAlloc(memPool,osWaitForever);			
+						memcpy(sapiDataPtr, dataPtr, qPtr[2]); //copy
+						sapiDataPtr[size-4] = 0x00;		// here put the terminaison c-style character known as a 0x00 aka NULL
+						toSapiMsg.anyPtr = sapiDataPtr;
+						toSapiMsg.sapi = sapiToReach;
+						toSapiMsg.addr = MYADDRESS;
+						
+						retCode = osMessageQueuePut(
+							queue_timeR_id,
+							&toSapiMsg,
+							osPriorityNormal,
+							osWaitForever);
+						CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
+					}
 				}
 			}
 		}
