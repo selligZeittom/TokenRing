@@ -148,11 +148,13 @@ void MacReceiver(void *argument)
 							qPtr[size-1] = qPtr[size-1] & (~R_flag); //force the bit1 to 0							
 						}
 					}
-					// ERROR Checksum
+					// ERROR Checksum indicate by setting the READ bit but not the ACK
 					else
 					{
-						// write NACK
-						qPtr[size-1] = qPtr[size-1] & (~A_flag); //force the bit0 to 0
+						// write NOK
+						//qPtr[size-1] = qPtr[size-1] & (~A_flag); //force the bit0 to 0
+						// if SAPI available : set READ
+						qPtr[size-1] = qPtr[size-1] | R_flag; //force the bit1 to 1
 					}
 					
 					/********** QUEUE PUT : send frame back to phy... **********/
@@ -162,10 +164,11 @@ void MacReceiver(void *argument)
 						&queueMsg,
 						osPriorityNormal,
 						osWaitForever);
-					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
+					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);								
+				
 				}
 				
-				// We were the source so this is a DATABACK
+				// We were the source of a msg or a Broadcast so this is a DATABACK
 				else if(((qPtr[0]>>3) == gTokenInterface.myAddress) || 
 					(((qPtr[1]>>3) == BROADCAST_ADDRESS) && ((qPtr[0]>>3)==gTokenInterface.myAddress)))	// is source my address
 				{

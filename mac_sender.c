@@ -46,7 +46,7 @@ void MacSender(void *argument)
 			uint8_t statusDataBackFlagsAckRead = (databackFramePtr[3+length]) & 0x03; //get the 2 status bits
 			uint8_t* stringPtr = &(databackFramePtr[3]); //ptr on the data inside the frame
 
-			// ACK and READ are SET 
+			// ACK and READ are SET or we send us a msg (we are destination)
 			if(statusDataBackFlagsAckRead == 0x03)
 			{
 				/********** MEMORY RELEASE	of the original data pointer **********/	
@@ -67,7 +67,9 @@ void MacSender(void *argument)
 				lcdStringPtr[0] = 'b';
 				lcdStringPtr[1] = 'a';
 				lcdStringPtr[2] = 'd';
-				lcdStringPtr[3] = '\0';
+				lcdStringPtr[3] = '\r';
+				lcdStringPtr[4] = '\n';
+				lcdStringPtr[5] = '\0';
 				
 				macErrMsg.anyPtr = lcdStringPtr;
 				macErrMsg.addr = databackFramePtr[0] >> 0x03;
@@ -90,7 +92,8 @@ void MacSender(void *argument)
 				}
 				
 				// ACK is 0 and READ is 1 => sapi destination is connected but error somewhere, send again
-				else if(((statusDataBackFlagsAckRead & 0x01) == 0) && ((statusDataBackFlagsAckRead & 0x02) == 1)) 
+				//else if(((statusDataBackFlagsAckRead & 0x01) == 0) && ((statusDataBackFlagsAckRead & 0x02) == 1)) 
+				else if(statusDataBackFlagsAckRead == 0x02)
 				{
 					struct queueMsg_t sendAgainMsg;
 					sendAgainMsg.type = TO_PHY;
