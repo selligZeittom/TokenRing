@@ -24,7 +24,7 @@ void MacSender(void *argument)
 	
 	uint8_t* originalMsgPtr;
 	uint8_t firstEverToken = 1;
-	
+	uint8_t updateLCD = 0;
 	for(;;)
 	{
 		/********** QUEUE GET : get a message from the macS queue **********/									
@@ -161,25 +161,39 @@ void MacSender(void *argument)
 				//for our station, update the token with our informations
 				if(i == gTokenInterface.myAddress)
 				{
+					if(receivedTokenPtr[i+1] != gTokenInterface.station_list[i])
+					{
+						updateLCD = 1;
+					}
 					receivedTokenPtr[i+1] = gTokenInterface.station_list[i];
 				} 
 				else
 				{
+					if(gTokenInterface.station_list[i] != receivedTokenPtr[i+1])
+					{
+						updateLCD = 1;
+					}
 					gTokenInterface.station_list[i] = receivedTokenPtr[i+1];
 				}
 			}
 			
-			//prepare a frame to send to the lcd 
-			struct queueMsg_t lcdMsg;
-			lcdMsg.type = TOKEN_LIST;
+			if(updateLCD == 1)
+			{
+				//prepare a frame to send to the lcd 
+				struct queueMsg_t lcdMsg;
+				lcdMsg.type = TOKEN_LIST;
+				
+				/********** QUEUE PUT : put info to the lcd **********/
+				retCode = osMessageQueuePut(
+					queue_lcd_id,
+					&lcdMsg,
+					osPriorityNormal,
+					osWaitForever);
+				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
+				updateLCD = 0;
+			}
 			
-			/********** QUEUE PUT : put info to the lcd **********/
-			retCode = osMessageQueuePut(
-				queue_lcd_id,
-				&lcdMsg,
-				osPriorityNormal,
-				osWaitForever);
-			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
+
 			
 			/********** QUEUE GET : get sth from our local queue **********/
 			struct queueMsg_t toSendMsg;
