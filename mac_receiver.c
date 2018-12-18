@@ -68,7 +68,7 @@ void MacReceiver(void *argument)
 				
 				// We are the destination it's a DATA_IND for one of our SAPI
 				if(((qPtr[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
-					(((qPtr[1]>>3) == BROADCAST_ADDRESS) && ((qPtr[0]>>3)!=gTokenInterface.myAddress)))	// is a broadcast frame (TIME SAPI)
+					(((qPtr[1]>>3) == BROADCAST_ADDRESS))) //&& ((qPtr[0]>>3)!=gTokenInterface.myAddress)))	// is a broadcast frame (TIME SAPI)
 				{
 					/******************************************************
 					*	1) get and calculate checksum
