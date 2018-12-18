@@ -21,39 +21,31 @@
 void MacReceiver(void *argument)
 {
 	struct queueMsg_t queueMsg;		// queue message
-	uint8_t * dataPtr;		// pointer on the data 
-	uint8_t * qPtr;  // pointer on the frame (frame without STX/ETX)
-	size_t	size;
 	osStatus_t retCode;
 	
 	for(;;)
 	{
-		//----------------------------------------------------------------------------
-		// QUEUE READ	from queue_macR_id									
-		//----------------------------------------------------------------------------
+		/********** QUEUE GET : get a message from from queue_macR_id **********/		
 		retCode = osMessageQueueGet( 	
 			queue_macR_id,
 			&queueMsg,
 			NULL,
 			osWaitForever); 	
-    CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
+		CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
 		
+		//if we got a message
 		if(retCode == osOK)
 		{
-			
-			qPtr = queueMsg.anyPtr;
-
-			//---------------------------------------------------------------------------
-			// DETECT TYPE OF FRAME
-			//---------------------------------------------------------------------------
+			uint8_t* qPtr = queueMsg.anyPtr; // pointer on the frame (frame without STX/ETX)
 				
+			//----------------------------------------------------------------------------
 			// TOKEN RECEIVED
+			//----------------------------------------------------------------------------
 			if(qPtr[0] == TOKEN_TAG)   
 			{
 				queueMsg.type = TOKEN;
-				//--------------------------------------------------------------------------
-				// QUEUE SEND	(send received frame to mac layer sender)
-				//--------------------------------------------------------------------------
+
+				/********** QUEUE PUT : forward token to the mac sender **********/
 				retCode = osMessageQueuePut(
 					queue_macS_id,
 					&queueMsg,
@@ -63,14 +55,16 @@ void MacReceiver(void *argument)
 			
 			}	
 			
+			//----------------------------------------------------------------------------
 			// DATA FRAME RECEIVED
+			//----------------------------------------------------------------------------
 			else												
 			{				
 				//get the size
-				size = qPtr[2]+4;
+				size_t	size = qPtr[2]+4;
 				
 				// it's a data so get the msg
-				dataPtr = &qPtr[3];
+				uint8_t * dataPtr = &qPtr[3];
 				
 				// We are the destination it's a DATA_IND for one of our SAPI
 				if(((qPtr[1]>>3) == gTokenInterface.myAddress) ||	// is destination my address (CHAT SAPI)
@@ -96,8 +90,7 @@ void MacReceiver(void *argument)
 					uint8_t checksumCalc = 0;
 					for(uint8_t i = 0; i< (qPtr[2] + 3); i++)
 					{
-							checksumCalc += qPtr[i];
-							//checksumCalc += dataPtr[i];
+						checksumCalc += qPtr[i];
 					}
 					checksumCalc = checksumCalc << 2;
 					
@@ -105,7 +98,6 @@ void MacReceiver(void *argument)
 					if(checksumRx == checksumCalc)
 					{
 						// write ACK
-						//qPtr[size-1] = qPtr[size-1] | 0x01; //force the bit0 to 1
 						qPtr[size-1] = qPtr[size-1] | A_flag;
 						
 						// check our SAPI state
@@ -114,29 +106,28 @@ void MacReceiver(void *argument)
 						// check if our sapi is connected
 						if(((gTokenInterface.station_list[MYADDRESS] >> sapiToReach) &0x01) == 1)
 						{
-							// if SAPI available
-							// write Read @ 1
+							// if SAPI available : set READ
 							qPtr[size-1] = qPtr[size-1] | R_flag; //force the bit1 to 1
 							
 							// prepare the message to forward to our SAPI (chat or time)
-							// beware the DEBUG STATION send a msg without \0
-							struct queueMsg_t queueMsgForSAPI;
-							queueMsgForSAPI.type = DATA_IND;
-							dataPtr[size-4] = 0x00;							// here put the terminaison c-style character known as a 0x00 aka NULL
-							queueMsgForSAPI.anyPtr = dataPtr;
-							queueMsgForSAPI.sapi = sapiToReach;
-							queueMsgForSAPI.addr = MYADDRESS;
+							struct queueMsg_t toSapiMsg;
+							toSapiMsg.type = DATA_IND;
 							
-							// push it man
-							//--------------------------------------------------------------------------
-							// QUEUE SEND	(send string to right sapi)
-							//--------------------------------------------------------------------------
 							
+							/********** MEMORY ALLOC : save some space for the data **********/
+							uint8_t* sapiDataPtr = osMemoryPoolAlloc(memPool,osWaitForever);			
+							memcpy(sapiDataPtr, dataPtr, qPtr[2]); //copy
+							sapiDataPtr[size-4] = 0x00;		// here put the terminaison c-style character known as a 0x00 aka NULL
+							toSapiMsg.anyPtr = sapiDataPtr;
+							toSapiMsg.sapi = sapiToReach;
+							toSapiMsg.addr = MYADDRESS;
+							
+							/********** QUEUE PUT : send string to the right sapi **********/
 							if(sapiToReach == CHAT_SAPI)
 							{
 								retCode = osMessageQueuePut(
 									queue_chatR_id,
-									&queueMsgForSAPI,
+									&toSapiMsg,
 									osPriorityNormal,
 									osWaitForever);
 								CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
@@ -145,7 +136,7 @@ void MacReceiver(void *argument)
 							{
 									retCode = osMessageQueuePut(
 									queue_timeR_id,
-									&queueMsgForSAPI,
+									&toSapiMsg,
 									osPriorityNormal,
 									osWaitForever);
 								CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
@@ -153,10 +144,8 @@ void MacReceiver(void *argument)
 						}							
 						else
 						{
-							// SAPI not available
-							// write Read @ 0
-							qPtr[size-1] = qPtr[size-1] & (~R_flag); //force the bit1 to 0
-							
+							// SAPI not available : reset READ 
+							qPtr[size-1] = qPtr[size-1] & (~R_flag); //force the bit1 to 0							
 						}
 					}
 					// ERROR Checksum
@@ -166,10 +155,8 @@ void MacReceiver(void *argument)
 						qPtr[size-1] = qPtr[size-1] & (~A_flag); //force the bit0 to 0
 					}
 					
-					//--------------------------------------------------------------------------
-					// QUEUE SEND	(send back to phy 
-					//--------------------------------------------------------------------------
-					queueMsg.type = TO_PHY;
+					/********** QUEUE PUT : send frame back to phy... **********/
+					queueMsg.type = FROM_PHY;
 					retCode = osMessageQueuePut(
 						queue_phyS_id,
 						&queueMsg,
@@ -187,9 +174,7 @@ void MacReceiver(void *argument)
 					queueMsg.addr = gTokenInterface.myAddress;
 					queueMsg.sapi = CHAT_SAPI;
 					
-					//--------------------------------------------------------------------------
-					// QUEUE SEND	(send received frame to mac layer sender)
-					//--------------------------------------------------------------------------
+					/********** QUEUE PUT : send databack **********/
 					retCode = osMessageQueuePut(
 						queue_macS_id,
 						&queueMsg,

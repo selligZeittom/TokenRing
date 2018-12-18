@@ -19,61 +19,60 @@
 void MacSender(void *argument)
 {
 	struct queueMsg_t queueMsg;		// queue message
-	uint8_t * tokenPtr;		// pointer on the message (frame without STX/ETX)
-	size_t	size;
-	osStatus_t retCode;
+	osStatus_t retCode; 			// get the status after an operation on the OS
+	uint8_t * tokenPtr = NULL;				// pointer on the token, to ground
+	
 	
 	uint8_t* originalMsgPtr;
 	
 	for(;;)
 	{
-		//----------------------------------------------------------------------------
-		// QUEUE READ	from queue_macS_id									
-		//----------------------------------------------------------------------------
+		/********** QUEUE GET : get a message from the macS queue **********/									
 		retCode = osMessageQueueGet( 	
 			queue_macS_id,
 			&queueMsg,
 			NULL,
 			osWaitForever); 	
-    CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
+		CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);				
 		
-		//DATABACK RECEIVED
+		//----------------------------------------------------------------------------
+		// DATABACK RECEIVED									
+		//----------------------------------------------------------------------------
 		if(queueMsg.type == DATABACK)
 		{
-			uint8_t releaseToken = 0;
-			
-			uint8_t* dataBackPtr = queueMsg.anyPtr;
-			
-			uint8_t length = dataBackPtr[2];
-
-			uint8_t statusDataBackFlagsAckRead = (dataBackPtr[3+length]) & 0x03;
-			
-			uint8_t* strPtr = &(dataBackPtr[3]);
+			uint8_t needToReleaseToken = 0; 
+			uint8_t* databackFramePtr = queueMsg.anyPtr; //ptr on the frame		
+			uint8_t length = databackFramePtr[2]; //get the length
+			uint8_t statusDataBackFlagsAckRead = (databackFramePtr[3+length]) & 0x03; //get the 2 status bits
+			uint8_t* stringPtr = &(databackFramePtr[3]); //ptr on the data inside the frame
 
 			// ACK and READ are SET 
 			if(statusDataBackFlagsAckRead == 0x03)
 			{
-				// Everything is fine so destroy original
-				//------------------------------------------------------------------------
-				// MEMORY RELEASE	of the original data pointer
-				//------------------------------------------------------------------------
+				/********** MEMORY RELEASE	of the original data pointer **********/	
 				retCode = osMemoryPoolFree(memPool,originalMsgPtr);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
-				releaseToken = 1;
+				needToReleaseToken = 1; //msg was sent and handled correctly : release token
 			}
 			
-			// THEN READ @ 0 or ACK @ 0
+			// ACK or READ are SET, but not both
 			else
 			{
 				// Send a MAC_ERROR to the lcd queue
-				
 				struct queueMsg_t macErrMsg;
 				macErrMsg.type = MAC_ERROR;
-				macErrMsg.anyPtr = strPtr;
-				macErrMsg.addr = dataBackPtr[0] >> 0x03;
-				//--------------------------------------------------------------------------
-				// QUEUE SEND	(inform the lcd that destination sapi was not available)
-				//--------------------------------------------------------------------------
+				
+				/********** MEMORY ALLOC **********/	
+				char* lcdStringPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+				lcdStringPtr[0] = 'b';
+				lcdStringPtr[1] = 'a';
+				lcdStringPtr[2] = 'd';
+				lcdStringPtr[3] = '\0';
+				
+				macErrMsg.anyPtr = lcdStringPtr;
+				macErrMsg.addr = databackFramePtr[0] >> 0x03;
+
+				/********** QUEUE PUT : inform the lcd that destination sapi was not available **********/
 				retCode = osMessageQueuePut(
 					queue_lcd_id,
 					&macErrMsg,
@@ -81,71 +80,66 @@ void MacSender(void *argument)
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
 				
-						// READ is 0 destination sapi not connected
-						if( ((statusDataBackFlagsAckRead & 0x02) == 0) )// && ((statusDataBackFlagsAckRead & 0x01) == 1))
-						{
-							//------------------------------------------------------------------------
-							// MEMORY RELEASE	of the original data pointer
-							//------------------------------------------------------------------------
-							retCode = osMemoryPoolFree(memPool,originalMsgPtr);
-							CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
-							releaseToken = 1;
-						}
+				// READ is 0  : destination sapi is not connected
+				if( ((statusDataBackFlagsAckRead & 0x02) == 0) )
+				{
+					/********** MEMORY RELEASE	of the original data pointer **********/
+					retCode = osMemoryPoolFree(memPool,originalMsgPtr);
+					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
+					needToReleaseToken = 1;
+				}
+				
+				// ACK is 0 and READ is 1 => sapi destination is connected but error somewhere, send again
+				else if(((statusDataBackFlagsAckRead & 0x01) == 0) && ((statusDataBackFlagsAckRead & 0x02) == 1)) 
+				{
+					struct queueMsg_t sendAgainMsg;
+					sendAgainMsg.type = TO_PHY;
+					sendAgainMsg.addr = MYADDRESS;
+					
+					/********** MEMORY ALLOC : save some space for the string sent to the lcd **********/
+					uint8_t* sendAgainDataPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+					memcpy(sendAgainDataPtr, originalMsgPtr, (originalMsgPtr[2]+4));
+					
+					sendAgainMsg.anyPtr = sendAgainDataPtr;
 
-						// ACK is 0 and READ is 1 => sapi destination is connected but error somewhere send again
-						/*
-						
-						
-						
-						
-						BEWARE IF 2 ERRORS HAPPENED on the same msg => original no more there...................
-						
-						
-						
-						
-						
-						*/
-						else if(((statusDataBackFlagsAckRead & 0x01) == 0) && ((statusDataBackFlagsAckRead & 0x02) == 1)) 
-						{
-							struct queueMsg_t sendAgainMsg;
-							sendAgainMsg.type = TO_PHY;
-							sendAgainMsg.addr = MYADDRESS;
-							sendAgainMsg.anyPtr = originalMsgPtr;
-							//--------------------------------------------------------------------------
-							// QUEUE SEND	(send back our msg)
-							//--------------------------------------------------------------------------
-							retCode = osMessageQueuePut(
-								queue_phyS_id,
-								&sendAgainMsg,
-								osPriorityNormal,
-								osWaitForever);
-							CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);			
-							releaseToken = 0;
-						}
+					/********** QUEUE PUT : send again the message **********/
+					retCode = osMessageQueuePut(
+						queue_phyS_id,
+						&sendAgainMsg,
+						osPriorityNormal,
+						osWaitForever);
+					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);			
+					needToReleaseToken = 0; 
+				}
 			}
 			
-			//------------------------------------------------------------------------
-			// MEMORY RELEASE	of the dataBack pointer
-			//------------------------------------------------------------------------
-			dataBackPtr[0] = 0xAA;
-			dataBackPtr[1] = 0xBB;
-			retCode = osMemoryPoolFree(memPool,dataBackPtr);
+			/********** MEMORY RELEASE	of the databackFramePtr **********/
+			retCode = osMemoryPoolFree(memPool,databackFramePtr);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
 
-			if(releaseToken == 1)
+			//release the token if it was correctly sent and handled
+			if(needToReleaseToken == 1)
 			{
-				struct queueMsg_t queueReleaseToken;
-				queueReleaseToken.type = TO_PHY;
-				uint8_t* tokenReleasePtr = tokenPtr;
-				tokenReleasePtr[0] = TOKEN_TAG;
-				for(uint8_t i = 0;i<15;i++){
-					tokenReleasePtr[i+1] = gTokenInterface.station_list[i];
+				struct queueMsg_t releaseTokenMsg;
+				releaseTokenMsg.type = TO_PHY;
+				
+				//tbd
+				tokenPtr[0] = TOKEN_TAG;
+				for(uint8_t i = 0; i < 15;i++)
+				{
+					tokenPtr[i+1] = gTokenInterface.station_list[i];
 				}
-				queueReleaseToken.anyPtr = tokenReleasePtr;
-					
+				
+				/********** MEMORY ALLOC : save some space for the retainer of the original message **********/
+				uint8_t* releaseTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+				memcpy(releaseTokenPtr, tokenPtr, TOKENSIZE-2);
+				
+				releaseTokenMsg.anyPtr = releaseTokenPtr;
+				
+				/********** QUEUE PUT : give back the token to the next station **********/	
 				retCode = osMessageQueuePut(
 					queue_phyS_id,
-					&queueReleaseToken,
+					&releaseTokenMsg,
 					osPriorityNormal,
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
@@ -153,72 +147,75 @@ void MacSender(void *argument)
 	
 		}
 		
-		//TOKEN RECEIVED
+		//----------------------------------------------------------------------------
+		// TOKEN RECEIVED									
+		//----------------------------------------------------------------------------
 		else if(queueMsg.type == TOKEN)
-		{
-			
-			// tokenPtr = queueMsg.anyPtr;
-			
+		{	
 			// this token will be released it's not our alloc
 			uint8_t* receivedTokenPtr = queueMsg.anyPtr;
+			
+			if(tokenPtr == NULL) //test if tokenPtr already exists or not
+			{
+				/********** MEMORY ALLOC : save some space for the token **********/
+				tokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);				
+				tokenPtr[0] = TOKEN_TAG;
+				
+				//set our current state
+				gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
+			}
+			
 			//first update our list with the informations from the token
-			for(uint8_t i = 0;i<15;i++){
+			for(uint8_t i = 0;i < 15;i++)
+			{
 				//for our station, update the token with our informations
 				if(i == gTokenInterface.myAddress)
 				{
 					receivedTokenPtr[i+1] = gTokenInterface.station_list[i];
+					tokenPtr[i+1] = gTokenInterface.station_list[i];
 				} 
 				else
 				{
 					gTokenInterface.station_list[i] = receivedTokenPtr[i+1];
+					tokenPtr[i+1] = receivedTokenPtr[i+1];
 				}
 			}
 			
 			//prepare a frame to send to the lcd 
-			struct queueMsg_t queueLcdMsg;
-			queueLcdMsg.type = TOKEN_LIST;
+			struct queueMsg_t lcdMsg;
+			lcdMsg.type = TOKEN_LIST;
 			
-			//--------------------------------------------------------------------------
-			// QUEUE SEND	(inform the lcd that new informations are available)
-			//--------------------------------------------------------------------------
+			/********** QUEUE PUT : put info to the lcd **********/
 			retCode = osMessageQueuePut(
 				queue_lcd_id,
-				&queueLcdMsg,
+				&lcdMsg,
 				osPriorityNormal,
 				osWaitForever);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
 			
-			
-			//--------------------------------------------------------------------------
-			// QUEUE GET	(get sth inside the local queue)
-			//--------------------------------------------------------------------------
-			struct queueMsg_t queueMsgSend;
+			/********** QUEUE GET : get sth from our local queue **********/
+			struct queueMsg_t toSendMsg;
 			retCode = osMessageQueueGet( 	
-			local_queue_id,
-			&queueMsgSend,
-			NULL,
-			1); 	
-		//	CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
+				local_queue_id,
+				&toSendMsg,
+				NULL,
+				1); 	
+			//	CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
 			
 			//if there is sth inside the local queue -> send it !
 			if(retCode == osOK)
 			{
-				queueMsgSend.type = TO_PHY;
+				toSendMsg.type = TO_PHY;
+
+				/********** MEMORY ALLOC : save some space for the retainer of the original message **********/
+				originalMsgPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+				uint8_t* originalFramePtr = toSendMsg.anyPtr;
+				memcpy(originalMsgPtr,originalFramePtr,(uint8_t) (originalFramePtr[2]) + 4);	
 				
-				//--------------------------------------------------------------------------
-				// SAVE ORIGINAL MESSAGE POINTER IN CASE OF RESEND NEEDED
-				//--------------------------------------------------------------------------
-				//	originalMsgPtr = queueMsgSend.anyPtr; // aka framePtr précédemment alloué
-					originalMsgPtr = osMemoryPoolAlloc(memPool,osWaitForever);
-					uint8_t* originalFramePtr = queueMsgSend.anyPtr;
-					memcpy(originalMsgPtr,queueMsgSend.anyPtr,(uint8_t) (originalFramePtr[2]) + 4);	
-				
-				//--------------------------------------------------------------------------
-				// QUEUE SEND	(put into phy queue)
-				//--------------------------------------------------------------------------
+				/********** QUEUE PUT : give the message to phyS **********/
 				retCode = osMessageQueuePut(
 					queue_phyS_id,
-					&queueMsgSend,
+					&toSendMsg,
 					osPriorityNormal,
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
@@ -227,74 +224,87 @@ void MacSender(void *argument)
 			//if not -> release TOKEN
 			else
 			{
-				queueMsg.type = TO_PHY;
-			//	tokenPtr[0] = TOKEN_TAG;
+				struct queueMsg_t releaseTokenMsg;
+				releaseTokenMsg.type = TO_PHY;
+				//	tokenPtr[0] = TOKEN_TAG;
+				releaseTokenMsg.anyPtr = receivedTokenPtr;
+				
+				/********** QUEUE PUT : give back the token to the next station **********/
 				retCode = osMessageQueuePut(
 					queue_phyS_id,
-					&queueMsg,
+					&releaseTokenMsg,
 					osPriorityNormal,
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
 			}
 		}
 		
-		//NEW TOKEN REQUEST
+
+		//--------------------------------------------------------------------------
+		// NEW TOKEN REQUEST
+		//--------------------------------------------------------------------------
 		else if(queueMsg.type == NEW_TOKEN)
 		{
 			//set the time sapi as active (0x03) chat sapi will be at 0x01
 			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
 			
-			//malloc and then full this no need stx etx done by phy layer
-			//----------------------------------------------------------------------------
-			// MEMORY ALLOCATION				
-			//----------------------------------------------------------------------------
+			/********** MEMORY ALLOC : save some space for the token **********/
 			tokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);				
 			tokenPtr[0] = TOKEN_TAG;
-			for(uint8_t i = 0;i<15;i++){
+			
+			//copy the list of the stations into the new token
+			for(uint8_t i = 0;i<15;i++)
+			{
 				tokenPtr[i+1] = gTokenInterface.station_list[i];
 			}
 			
-			//create the token frame
-			struct queueMsg_t queueToken;
-			queueToken.type = TO_PHY;
-			queueToken.anyPtr = tokenPtr;
+			/********** MEMORY ALLOC : save memory for the sent token **********/
+			uint8_t* sentTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);	
+			memcpy(sentTokenPtr, tokenPtr, TOKENSIZE-2);
 			
-			//--------------------------------------------------------------------------
-			// QUEUE SEND	(forward the new token)
-			//--------------------------------------------------------------------------
+			//create the token frame
+			struct queueMsg_t tokenMsg;
+			tokenMsg.type = TO_PHY;
+			tokenMsg.anyPtr = sentTokenPtr;
+			
+			/********** QUEUE PUT : forward the new token to the next station **********/
 			retCode = osMessageQueuePut(
 				queue_phyS_id,
-				&queueToken,
+				&tokenMsg,
 				osPriorityNormal,
 				osWaitForever);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
 		}
 		
-		//START REQUEST (connect chat)
+		//--------------------------------------------------------------------------
+		// START REQUEST (connect chat)
+		//--------------------------------------------------------------------------
 		else if(queueMsg.type == START)
 		{
 			//set the time sapi as active (0x03) and chat sapi as active too (0x01)
 			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
 		}
 		
-		//STOP REQUEST (disconnect chat)
+		//--------------------------------------------------------------------------
+		// STOP REQUEST (disconnect chat)
+		//--------------------------------------------------------------------------		
 		else if(queueMsg.type == STOP)
 		{
 			//set the time sapi as active (0x03) and chat sapi as  not active (0x01)
 			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x08;
 		}
 		
-		//GOT DATA FROM OUR SAPIs
+		
+		//--------------------------------------------------------------------------
+		// GOT DATA FROM OUR SAPIs
+		//--------------------------------------------------------------------------
 		else if(queueMsg.type == DATA_IND)
 		{
-			struct queueMsg_t msgSend;
-			uint8_t* stringFromChatPtr = queueMsg.anyPtr;
-			//----------------------------------------------------------------------------
-			// MEMORY ALLOCATION				
-			//----------------------------------------------------------------------------
+			struct queueMsg_t dataMsg;
+			uint8_t* stringFromChatPtr = queueMsg.anyPtr; //this one won't move
 
-						//complete length
-			uint8_t* stringPtr = queueMsg.anyPtr;
+			//compute length
+			uint8_t* stringPtr = queueMsg.anyPtr; //this one will move
 			uint8_t length = 0;
 			while(*stringPtr != 0)
 			{
@@ -302,6 +312,7 @@ void MacSender(void *argument)
 				stringPtr++;
 			}
 			
+			/********** MEMORY ALLOC : save some space for the data **********/
 			uint8_t* framePtr = osMemoryPoolAlloc(memPool,osWaitForever);			
 			uint8_t addrDest = queueMsg.addr;
 			uint8_t srcSapi = queueMsg.sapi;
@@ -317,43 +328,39 @@ void MacSender(void *argument)
 			controldst = addrDest << 3;
 			controldst = controldst + srcSapi;
 			framePtr[1] = controldst;
-			
 
+			//set frame length, computed before
 			framePtr[2] = length;
-			
+
 			//copy data into frame 
-			uint8_t checksum = 0;
-			stringPtr = queueMsg.anyPtr; //reset stringPtr
+			stringPtr = stringFromChatPtr; //reset stringPtr
 			for(uint8_t i = 0; i < length; i++)
 			{
 				framePtr[i+3] = *stringPtr;
-			//	checksum+= framePtr[i+3];
 				stringPtr++;
 			}
 			
-			// and calculate checksum
+			//and calculate checksum
+			uint8_t checksum = 0;
 			for(uint8_t i = 0; i < (length + 3); i++)
 			{		
 			  	checksum+= framePtr[i];			
 			}
-			checksum = checksum << 2 ;// & 0xfc; //reset ACK and READ
+			checksum = checksum << 2 ;//reset ACK and READ
 			framePtr[3+length] = checksum;
 			
-			msgSend.anyPtr = framePtr;
-			//--------------------------------------------------------------------------
-			// QUEUE SEND	(put into the local queue)
-			//--------------------------------------------------------------------------
+			//set the ptr of the message to the one we just filled
+			dataMsg.anyPtr = framePtr;
+
+			/********** QUEUE PUT : put into the local queue **********/
 			retCode = osMessageQueuePut(
 				local_queue_id,
-				&msgSend,
+				&dataMsg,
 				osPriorityNormal,
 				osWaitForever);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
 			
-			//------------------------------------------------------------------------
-			// MEMORY RELEASE	of the string pointer
-			//------------------------------------------------------------------------
-
+			/********** MEMORY RELEASE : free the memory from the string pointer **********/
 			retCode = osMemoryPoolFree(memPool,stringFromChatPtr);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);
 		
