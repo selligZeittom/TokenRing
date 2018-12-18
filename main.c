@@ -387,7 +387,7 @@ int main(void)
 	queue_lcd_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
 	queue_keyboard_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
 	queue_usartR_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
-	local_queue_id = osMessageQueueNew(4,sizeof(struct queueMsg_t),NULL); 	
+	local_queue_id = osMessageQueueNew(5,sizeof(struct queueMsg_t),NULL); 	
 
 // queues below have to be used when Keil fix the os display bug
 /*

@@ -127,7 +127,7 @@ void MacSender(void *argument)
 					tokenPtr[i+1] = gTokenInterface.station_list[i];
 				}
 				
-				/********** MEMORY ALLOC : save some space for the retainer of the original message **********/
+				/********** MEMORY ALLOC : save some space for the sent token **********/
 				uint8_t* releaseTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);
 				memcpy(releaseTokenPtr, tokenPtr, TOKENSIZE-2);
 				
