@@ -113,9 +113,6 @@ void MacSender(void *argument)
 				}
 			}
 			
-			/********** MEMORY RELEASE	of the databackFramePtr **********/
-			retCode = osMemoryPoolFree(memPool,databackFramePtr);
-			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);	
 
 			//release the token if it was correctly sent and handled
 			if(needToReleaseToken == 1)
@@ -144,7 +141,10 @@ void MacSender(void *argument)
 					osWaitForever);
 				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);					
 			}
-	
+			
+			/********** MEMORY RELEASE	of the databackFramePtr **********/
+			retCode = osMemoryPoolFree(memPool,databackFramePtr);
+			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
 		}
 		
 		//----------------------------------------------------------------------------
