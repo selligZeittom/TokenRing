@@ -120,7 +120,7 @@ void MacReceiver(void *argument)
 							sapiDataPtr[size-4] = 0x00;		// here put the terminaison c-style character known as a 0x00 aka NULL
 							toSapiMsg.anyPtr = sapiDataPtr;
 							toSapiMsg.sapi = sapiToReach;
-							toSapiMsg.addr = MYADDRESS;
+							toSapiMsg.addr = qPtr[0]>>3;
 							
 							/********** QUEUE PUT : send string to the right sapi **********/
 							if(sapiToReach == CHAT_SAPI)
@@ -157,15 +157,34 @@ void MacReceiver(void *argument)
 						qPtr[size-1] = qPtr[size-1] | R_flag; //force the bit1 to 1
 					}
 					
-					/********** QUEUE PUT : send frame back to phy... **********/
-					queueMsg.type = FROM_PHY;
-					retCode = osMessageQueuePut(
-						queue_phyS_id,
-						&queueMsg,
-						osPriorityNormal,
-						osWaitForever);
-					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);								
-				
+					// we were the source
+					if((qPtr[0]>>3) == gTokenInterface.myAddress)
+					{
+						//update type
+						queueMsg.type = DATABACK;
+						//add src and src sapi
+						queueMsg.addr = gTokenInterface.myAddress;
+						queueMsg.sapi = CHAT_SAPI;
+						
+						/********** QUEUE PUT : send databack **********/
+						retCode = osMessageQueuePut(
+							queue_macS_id,
+							&queueMsg,
+							osPriorityNormal,
+							osWaitForever);
+						CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);						
+					}
+					else
+					{
+						/********** QUEUE PUT : send frame back to phy... **********/
+						queueMsg.type = FROM_PHY;
+						retCode = osMessageQueuePut(
+							queue_phyS_id,
+							&queueMsg,
+							osPriorityNormal,
+							osWaitForever);
+						CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);								
+					}
 				}
 				
 				// We were the source of a msg or a Broadcast so this is a DATABACK

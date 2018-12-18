@@ -266,7 +266,8 @@ void MacSender(void *argument)
 		else if(queueMsg.type == START)
 		{
 			//set the time sapi as active (0x03) and chat sapi as active too (0x01)
-			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
+			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A;
+			gTokenInterface.connected = true;
 		}
 		
 		//--------------------------------------------------------------------------
@@ -276,6 +277,7 @@ void MacSender(void *argument)
 		{
 			//set the time sapi as active (0x03) and chat sapi as  not active (0x01)
 			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x08;
+		  gTokenInterface.connected = false;
 		}
 		
 		
