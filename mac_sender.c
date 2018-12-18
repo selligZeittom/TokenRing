@@ -20,10 +20,10 @@ void MacSender(void *argument)
 {
 	struct queueMsg_t queueMsg;		// queue message
 	osStatus_t retCode; 			// get the status after an operation on the OS
-	uint8_t * tokenPtr = NULL;				// pointer on the token, to ground
 	uint8_t* receivedTokenPtr;
 	
 	uint8_t* originalMsgPtr;
+	uint8_t firstEverToken = 1;
 	
 	for(;;)
 	{
@@ -120,18 +120,6 @@ void MacSender(void *argument)
 				struct queueMsg_t releaseTokenMsg;
 				releaseTokenMsg.type = TO_PHY;
 				
-				
-				//tbd
-				tokenPtr[0] = TOKEN_TAG;
-				for(uint8_t i = 0; i < 15;i++)
-				{
-					tokenPtr[i+1] = gTokenInterface.station_list[i];
-				}
-				
-				/********** MEMORY ALLOC : save some space for the sent token **********/
-				//uint8_t* releaseTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);
-				//memcpy(releaseTokenPtr, tokenPtr, TOKENSIZE-2);
-				
 				releaseTokenMsg.anyPtr = receivedTokenPtr;
 				
 				/********** QUEUE PUT : give back the token to the next station **********/	
@@ -156,15 +144,11 @@ void MacSender(void *argument)
 			// this token will be released it's not our alloc
 			receivedTokenPtr = queueMsg.anyPtr;
 			
-			
-			if(tokenPtr == NULL) //test if tokenPtr already exists or not
+			//update our station list is it's the first time ever we receive a token
+			if(firstEverToken == 1)
 			{
-				/********** MEMORY ALLOC : save some space for the token **********/
-				tokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);				
-				tokenPtr[0] = TOKEN_TAG;
-				
-				//set our current state
 				gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
+				firstEverToken = 0;
 			}
 		
 			
@@ -175,12 +159,10 @@ void MacSender(void *argument)
 				if(i == gTokenInterface.myAddress)
 				{
 					receivedTokenPtr[i+1] = gTokenInterface.station_list[i];
-					tokenPtr[i+1] = gTokenInterface.station_list[i];
 				} 
 				else
 				{
 					gTokenInterface.station_list[i] = receivedTokenPtr[i+1];
-					tokenPtr[i+1] = receivedTokenPtr[i+1];
 				}
 			}
 			
@@ -229,7 +211,6 @@ void MacSender(void *argument)
 			{
 				struct queueMsg_t releaseTokenMsg;
 				releaseTokenMsg.type = TO_PHY;
-				//	tokenPtr[0] = TOKEN_TAG;
 				releaseTokenMsg.anyPtr = receivedTokenPtr;
 				
 				/********** QUEUE PUT : give back the token to the next station **********/
@@ -250,9 +231,10 @@ void MacSender(void *argument)
 		{
 			//set the time sapi as active (0x03) chat sapi will be at 0x01
 			gTokenInterface.station_list[gTokenInterface.myAddress] = 0x0A; 
+			firstEverToken = 0; //means we don't need to do that again 
 			
 			/********** MEMORY ALLOC : save some space for the token **********/
-			tokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);				
+			uint8_t* tokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);				
 			tokenPtr[0] = TOKEN_TAG;
 			
 			//copy the list of the stations into the new token
@@ -260,15 +242,11 @@ void MacSender(void *argument)
 			{
 				tokenPtr[i+1] = gTokenInterface.station_list[i];
 			}
-			
-			/********** MEMORY ALLOC : save memory for the sent token **********/
-			uint8_t* sentTokenPtr = osMemoryPoolAlloc(memPool,osWaitForever);	
-			memcpy(sentTokenPtr, tokenPtr, TOKENSIZE-2);
-			
+
 			//create the token frame
 			struct queueMsg_t tokenMsg;
 			tokenMsg.type = TO_PHY;
-			tokenMsg.anyPtr = sentTokenPtr;
+			tokenMsg.anyPtr = tokenPtr;
 			
 			/********** QUEUE PUT : forward the new token to the next station **********/
 			retCode = osMessageQueuePut(
@@ -343,6 +321,10 @@ void MacSender(void *argument)
 				stringPtr++;
 			}
 			
+			/********** MEMORY RELEASE : free the memory from the string pointer **********/
+			retCode = osMemoryPoolFree(memPool,stringFromChatPtr);
+			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);
+			
 			//and calculate checksum
 			uint8_t checksum = 0;
 			for(uint8_t i = 0; i < (length + 3); i++)
@@ -362,11 +344,7 @@ void MacSender(void *argument)
 				osPriorityNormal,
 				osWaitForever);
 			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);		
-			
-			/********** MEMORY RELEASE : free the memory from the string pointer **********/
-			retCode = osMemoryPoolFree(memPool,stringFromChatPtr);
-			CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);
-		
+					
 		}
 	}
 }
