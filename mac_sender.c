@@ -62,39 +62,43 @@ void MacSender(void *argument)
 			// ACK or READ are SET, but not both
 			else
 			{
-				// update only one time the lcd, avoid harrasment
-				if(updateLCDOnError == 1)
-				{
-				// Send a MAC_ERROR to the lcd queue
-				struct queueMsg_t macErrMsg;
-				macErrMsg.type = MAC_ERROR;
-				
-				/********** MEMORY ALLOC **********/	
-				char* lcdStringPtr = osMemoryPoolAlloc(memPool,osWaitForever);
-				lcdStringPtr[0] = 'b';
-				lcdStringPtr[1] = 'a';
-				lcdStringPtr[2] = 'd';
-				lcdStringPtr[3] = '\r';
-				lcdStringPtr[4] = '\n';
-				lcdStringPtr[5] = '\0';
-				
-				macErrMsg.anyPtr = lcdStringPtr;
-				macErrMsg.addr = databackFramePtr[0] >> 0x03;
 
-				/********** QUEUE PUT : inform the lcd that destination sapi was not available **********/
-				retCode = osMessageQueuePut(
-					queue_lcd_id,
-					&macErrMsg,
-					osPriorityNormal,
-					osWaitForever);
-				CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);						
-				}
-				
+				//was there
 				
 				
 				// READ is 0  : destination sapi is not connected
 				if( ((statusDataBackFlagsAckRead & 0x02) == 0) )
 				{
+					
+						// update only one time the lcd, avoid harrasment
+					if(updateLCDOnError == 1)
+					{
+					// Send a MAC_ERROR to the lcd queue
+					struct queueMsg_t macErrMsg;
+					macErrMsg.type = MAC_ERROR;
+					
+					/********** MEMORY ALLOC **********/	
+					char* lcdStringPtr = osMemoryPoolAlloc(memPool,osWaitForever);
+					lcdStringPtr[0] = 'b';
+					lcdStringPtr[1] = 'a';
+					lcdStringPtr[2] = 'd';
+					lcdStringPtr[3] = '\r';
+					lcdStringPtr[4] = '\n';
+					lcdStringPtr[5] = '\0';
+					
+					macErrMsg.anyPtr = lcdStringPtr;
+					macErrMsg.addr = databackFramePtr[0] >> 0x03;
+
+					/********** QUEUE PUT : inform the lcd that destination sapi was not available **********/
+					retCode = osMessageQueuePut(
+						queue_lcd_id,
+						&macErrMsg,
+						osPriorityNormal,
+						osWaitForever);
+					CheckRetCode(retCode,__LINE__,__FILE__,CONTINUE);						
+					}				
+					
+					
 					updateLCDOnError = 0;
 					/********** MEMORY RELEASE	of the original data pointer **********/
 					retCode = osMemoryPoolFree(memPool,originalMsgPtr);
